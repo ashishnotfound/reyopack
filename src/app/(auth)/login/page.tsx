@@ -4,9 +4,10 @@
 
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { toast } from 'react-hot-toast';
+import Link from 'next/link';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { Loader2, LogIn, AlertCircle, UserPlus } from 'lucide-react';
+import { notifyError, notifySuccess } from '@/lib/ui/notifications';
 
 function LoginFormContent() {
   const searchParams = useSearchParams();
@@ -85,17 +86,16 @@ function LoginFormContent() {
         if (signUpErr) throw signUpErr;
 
         if (signUpData.session) {
-          toast.success('✓ Account created & logged in!');
           window.location.href = redirectTo;
         } else if (signUpData.user) {
-          toast.success('✓ Account created! Attempting log in…');
+          notifySuccess('Account created. Signing you in…');
           const { error: signInErr } = await supabase.auth.signInWithPassword({
             email: cleanEmail,
             password: cleanPassword,
           });
 
           if (signInErr) {
-            toast.success('✓ Account registered! Please log in with your credentials.');
+            notifySuccess('Account registered. Please log in with your credentials.');
             setIsSignUp(false);
           } else {
             window.location.href = redirectTo;
@@ -109,13 +109,12 @@ function LoginFormContent() {
 
         if (signInErr) throw signInErr;
 
-        toast.success('✓ Authenticated');
         window.location.href = redirectTo;
       }
     } catch (err) {
       const friendlyMsg = parseAuthError(err as Error);
       setErrorMsg(friendlyMsg);
-      toast.error(friendlyMsg);
+      notifyError(friendlyMsg);
     } finally {
       setLoading(false);
     }
@@ -233,6 +232,9 @@ function LoginFormContent() {
           {isSignUp ? 'Already have an account? Log In' : 'Need an account? Register'}
         </button>
       </div>
+      <Link href="/bootstrap-admin" className="text-xs text-secondary text-center">
+        First administrator setup
+      </Link>
     </div>
   );
 }

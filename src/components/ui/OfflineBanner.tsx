@@ -10,9 +10,9 @@ export function OfflineBanner() {
   if (isOnline) return null;
 
   return (
-    <div className="offline-banner" role="alert" aria-live="assertive">
+    <div className="offline-banner" role="status" aria-live="polite">
       <WifiOff size={16} />
-      <span>OFFLINE — Scanner disabled. Reconnecting…</span>
+      <span>OFFLINE · actions paused · reconnecting…</span>
     </div>
   );
 }

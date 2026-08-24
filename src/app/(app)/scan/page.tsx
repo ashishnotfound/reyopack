@@ -2,8 +2,7 @@
 // src/app/(app)/scan/page.tsx
 // PRIMARY PACKING PAGE — Scan AWB → Visual Verification → PACKED → Record → Next
 
-import { useState, useCallback, useEffect } from 'react';
-import { toast } from 'react-hot-toast';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { CameraScanner } from '@/components/scanner/CameraScanner';
 import { ManualEntry } from '@/components/scanner/ManualEntry';
 import { OrderCard } from '@/components/packing/OrderCard';
@@ -14,8 +13,9 @@ import { usePackingSession } from '@/lib/hooks/usePackingSession';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { AwbLookupResult, PackOrderResult, Order } from '@/types/database.types';
 import { X, ChevronRight, WifiOff, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
-import { playErrorSound, playWarningSound, setSoundEnabled as setSoundPreference } from '@/lib/utils/sound';
+import { getSoundEnabled, playErrorSound, playWarningSound, setSoundEnabled as setSoundPreference } from '@/lib/utils/sound';
 import { vibrateError, vibrateWarning } from '@/lib/utils/vibration';
+import { notifyError } from '@/lib/ui/notifications';
 
 type ScanState = 'idle' | 'loading' | 'found' | 'not_found' | 'error';
 
@@ -31,7 +31,11 @@ export default function ScanPage() {
   const [scannerPaused, setScannerPaused] = useState(false);
   const [todayCount, setTodayCount] = useState(0);
   const [userId, setUserId] = useState<string | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(() => getSoundEnabled());
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const activeLookupRef = useRef<string | null>(null);
+  const initialAwbRef = useRef<string | null>(null);
 
   const isOnline = useOnlineStatus();
   const { session, startSession, endSession, loading: sessionLoading } = usePackingSession(userId);
@@ -55,7 +59,7 @@ export default function ScanPage() {
       .eq('packed_by', userId)
       .gte('packed_at', today.toISOString())
       .then(({ count }) => setTodayCount(count || 0));
-  }, [userId, scannedOrder]);
+  }, [userId]);
 
   useRealtimeOrders({
     onOrderUpdate: useCallback(
@@ -86,26 +90,33 @@ export default function ScanPage() {
   const lookupAwb = useCallback(
     async (awb: string) => {
       if (!isOnline) {
-        toast.error('Cannot scan while offline');
         return;
       }
+
+      const normalizedAwb = awb.trim();
+      if (!normalizedAwb || activeLookupRef.current) return;
+      activeLookupRef.current = normalizedAwb;
 
       setScanState('loading');
       setScannerPaused(true);
       setScannedOrder(null);
       setNotFoundAwb(null);
+      setScanError(null);
+      setAutoAdvance(false);
 
       try {
         const response = await fetch('/api/scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ awb }),
+          body: JSON.stringify({ awb: normalizedAwb }),
         });
         const payload = await response.json() as AwbLookupResult & { error?: string };
 
         if (!response.ok) {
           setScanState('error');
-          toast.error(payload.error || 'Lookup failed.');
+          setScanError(payload.error || 'Shipment lookup failed. Try again.');
+          playErrorSound();
+          vibrateError();
           setScannerPaused(false);
           return;
         }
@@ -114,7 +125,7 @@ export default function ScanPage() {
 
         if (!result.found) {
           setScanState('not_found');
-          setNotFoundAwb(awb);
+          setNotFoundAwb(normalizedAwb);
           playErrorSound();
           vibrateError();
           return;
@@ -126,26 +137,32 @@ export default function ScanPage() {
         }
 
         setScanState('found');
-        setScannedOrder({ awb, result });
-      } catch (err) {
+        setScannedOrder({ awb: normalizedAwb, result });
+      } catch {
         setScanState('error');
+        setScanError('Network error while looking up that barcode. Try again.');
         playErrorSound();
         vibrateError();
-        toast.error(`Error: ${(err as Error).message}`);
-        setTimeout(() => {
-          setScanState('idle');
-          setScannerPaused(false);
-        }, 2000);
+      } finally {
+        activeLookupRef.current = null;
       }
     },
     [isOnline]
   );
 
+  useEffect(() => {
+    const queryAwb = new URLSearchParams(window.location.search).get('awb')?.trim() || null;
+    if (queryAwb && queryAwb !== initialAwbRef.current) {
+      initialAwbRef.current = queryAwb;
+      void lookupAwb(queryAwb);
+    }
+  }, [lookupAwb]);
+
   const handleActionComplete = useCallback(
     (action: 'CHECKING' | 'PACKED', result: PackOrderResult) => {
       if (action === 'PACKED') {
         setTodayCount((c) => c + 1);
-        toast.success('✓ PACKED — permanent event recorded', { duration: 2000 });
+        setAutoAdvance(true);
         setScannedOrder((prev) =>
           prev
             ? {
@@ -155,7 +172,6 @@ export default function ScanPage() {
             : prev
         );
       } else {
-        toast.success('✓ Checking status recorded', { duration: 1500 });
         setScannedOrder((prev) =>
           prev
             ? {
@@ -174,7 +190,15 @@ export default function ScanPage() {
     setScannerPaused(false);
     setScannedOrder(null);
     setNotFoundAwb(null);
+    setScanError(null);
+    setAutoAdvance(false);
   }, []);
+
+  useEffect(() => {
+    if (!autoAdvance) return;
+    const timer = window.setTimeout(handleNext, 700);
+    return () => window.clearTimeout(timer);
+  }, [autoAdvance, handleNext]);
 
   return (
     <div className="scan-page" id="scan-page">
@@ -237,11 +261,11 @@ export default function ScanPage() {
       )}
 
       {/* Camera scanner */}
-      {!scannedOrder && scanState !== 'not_found' && (
+      {!scannedOrder && scanState !== 'not_found' && scanState !== 'error' && (
         <>
           <CameraScanner
             onScan={lookupAwb}
-            onError={(err) => toast.error(err)}
+            onError={notifyError}
             disabled={scannerPaused || !isOnline || scanState === 'loading'}
             continuous={false}
           />
@@ -272,6 +296,14 @@ export default function ScanPage() {
               TRY SCANNING AGAIN <ChevronRight size={18} />
             </button>
           </div>
+        </div>
+      )}
+
+      {scanState === 'error' && (
+        <div className="card card--error stack stack--sm fade-in" role="alert">
+          <div className="font-bold text-error">LOOKUP FAILED</div>
+          <div className="text-sm text-muted">{scanError || 'The shipment could not be looked up.'}</div>
+          <button className="btn btn--primary btn--full" onClick={handleNext}>TRY AGAIN</button>
         </div>
       )}
 
@@ -310,20 +342,14 @@ export default function ScanPage() {
             sessionId={session?.id}
             awbScanned={scannedOrder.awb}
             onActionComplete={handleActionComplete}
-            onError={(msg) => toast.error(msg)}
+            onError={notifyError}
             disabled={!isOnline || !session}
           />
 
-          {/* Next Button after processing */}
-          {(scannedOrder.result.status === 'PACKED' || scannedOrder.result.status === 'SHIPPED') && (
-            <button
-              className="btn btn--primary btn--full btn--lg mt-2"
-              onClick={handleNext}
-              aria-label="Scan next package"
-              id="btn-next-package"
-            >
-              NEXT PACKAGE <ChevronRight size={20} />
-            </button>
+          {autoAdvance && (
+            <div className="card card--success text-center font-bold" role="status">
+              PACKED ✓ — preparing the next scan…
+            </div>
           )}
         </div>
       )}

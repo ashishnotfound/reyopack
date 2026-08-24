@@ -3,10 +3,10 @@
 // User Management — Manage user roles (ADMIN, PACKER, PUTAWAY, VIEWER) and access state
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Profile, UserRole } from '@/types/database.types';
 import { Users, RefreshCw } from 'lucide-react';
+import { notifyError, notifySuccess } from '@/lib/ui/notifications';
 
 export default function UsersPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -44,9 +44,9 @@ export default function UsersPage() {
       .eq('id', userId);
 
     if (error) {
-      toast.error(`Failed to update role: ${error.message}`);
+      notifyError(`Failed to update role: ${error.message}`);
     } else {
-      toast.success('✓ User role updated');
+      notifySuccess('User role updated');
       fetchUsers();
     }
   };
@@ -64,9 +64,9 @@ export default function UsersPage() {
       .eq('id', userId);
 
     if (error) {
-      toast.error(`Failed to update status: ${error.message}`);
+      notifyError(`Failed to update status: ${error.message}`);
     } else {
-      toast.success(`✓ User ${!currentState ? 'activated' : 'deactivated'}`);
+      notifySuccess(`User ${!currentState ? 'activated' : 'deactivated'}`);
       fetchUsers();
     }
   };

@@ -4,9 +4,22 @@
 
 let audioContext: AudioContext | null = null;
 let soundEnabled = true;
+const SOUND_PREFERENCE_KEY = 'reyo-pack:sound-enabled';
+
+export function getSoundEnabled(): boolean {
+  if (typeof window === 'undefined') return soundEnabled;
+  const stored = window.localStorage.getItem(SOUND_PREFERENCE_KEY);
+  if (stored !== null) soundEnabled = stored === 'true';
+  return soundEnabled;
+}
 
 export function setSoundEnabled(enabled: boolean): void {
   soundEnabled = enabled;
+  try {
+    window.localStorage.setItem(SOUND_PREFERENCE_KEY, String(enabled));
+  } catch {
+    // Browser storage may be unavailable; the in-memory setting still works.
+  }
 }
 
 function getAudioContext(): AudioContext {

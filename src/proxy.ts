@@ -14,7 +14,6 @@ export async function proxy(request: NextRequest) {
 
   // Defensive check for Vercel deployment: if env vars are not set, allow request to render login
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn('[Proxy Warning] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing.');
     return supabaseResponse;
   }
 

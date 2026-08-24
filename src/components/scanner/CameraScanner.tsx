@@ -28,6 +28,8 @@ export function CameraScanner({
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const lastScannedRef = useRef<string>('');
   const lastScanTimeRef = useRef<number>(0);
+  const scanGenerationRef = useRef(0);
+  const startScanningRef = useRef<() => Promise<void>>(async () => undefined);
 
   const [cameraState, setCameraState] = useState<
     'idle' | 'starting' | 'active' | 'error' | 'denied'
@@ -40,11 +42,10 @@ export function CameraScanner({
       if (disabled) return;
 
       const now = Date.now();
-      // Debounce: same barcode within 2 seconds is ignored in continuous mode
+      // Keep the same label from firing twice while it is still in frame.
       if (
-        continuous &&
         text === lastScannedRef.current &&
-        now - lastScanTimeRef.current < 2000
+        now - lastScanTimeRef.current < 1500
       ) {
         return;
       }
@@ -56,7 +57,7 @@ export function CameraScanner({
       vibrateScan();
       onScan(text.trim());
     },
-    [disabled, continuous, onScan]
+    [disabled, onScan]
   );
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -64,6 +65,11 @@ export function CameraScanner({
 
   const startScanning = useCallback(async () => {
     if (!videoRef.current) return;
+    if (disabled) return;
+
+    const generation = ++scanGenerationRef.current;
+    controlsRef.current?.stop();
+    controlsRef.current = null;
     setCameraState('starting');
     setErrorMessage(null);
     setIsInsecureOrigin(false);
@@ -72,14 +78,6 @@ export function CameraScanner({
     if (typeof window !== 'undefined') {
       const isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-      console.log('[CameraScanner Audit]', {
-        isSecureContext: window.isSecureContext,
-        hostname: window.location.hostname,
-        protocol: window.location.protocol,
-        hasMediaDevices,
-        userAgent: navigator.userAgent,
-      });
 
       if (!isSecure || !hasMediaDevices) {
         setIsInsecureOrigin(true);
@@ -119,8 +117,8 @@ export function CameraScanner({
       try {
         videoDevices = await BrowserMultiFormatReader.listVideoInputDevices();
         setDevices(videoDevices);
-      } catch (listErr) {
-        console.warn('[CameraScanner] listVideoInputDevices error:', listErr);
+      } catch {
+        // The browser can still select the environment camera by facingMode.
       }
 
       // Prefer back/environment camera (for Android warehouse use)
@@ -140,8 +138,6 @@ export function CameraScanner({
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       };
 
-      console.log('[CameraScanner] Requesting getUserMedia constraints:', constraints);
-
       const controls = await reader.decodeFromConstraints(
         { video: constraints },
         videoRef.current,
@@ -154,11 +150,16 @@ export function CameraScanner({
         }
       );
 
+      if (generation !== scanGenerationRef.current || disabled) {
+        controls.stop();
+        return;
+      }
+
       controlsRef.current = controls;
       setCameraState('active');
     } catch (err: unknown) {
       const error = err as DOMException;
-      console.error('[CameraScanner Error]', error.name, error.message, error);
+      if (generation !== scanGenerationRef.current) return;
 
       let detailMsg = error.message || 'Unknown camera error';
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
@@ -180,43 +181,42 @@ export function CameraScanner({
       setErrorMessage(detailMsg);
       onError?.(detailMsg);
     }
-  }, [handleDecode, onError, continuous, selectedDeviceId]);
+  }, [disabled, handleDecode, onError, continuous, selectedDeviceId]);
 
   const stopScanning = useCallback(() => {
+    scanGenerationRef.current += 1;
     controlsRef.current?.stop();
     controlsRef.current = null;
     setCameraState('idle');
   }, []);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (!disabled) {
-      timer = setTimeout(() => {
-        startScanning();
-      }, 0);
-    } else {
-      timer = setTimeout(() => {
-        stopScanning();
-      }, 0);
+    startScanningRef.current = startScanning;
+  }, [startScanning]);
+
+  useEffect(() => {
+    if (!disabled) void startScanningRef.current();
+    else {
+      const timer = window.setTimeout(stopScanning, 0);
+      return () => window.clearTimeout(timer);
     }
 
     return () => {
-      clearTimeout(timer);
-      controlsRef.current?.stop();
+      stopScanning();
     };
-  }, [disabled, startScanning, stopScanning]);
+  }, [disabled, stopScanning]);
 
-  // Restart when device selection changes
+  // Restart only when the operator explicitly changes cameras. The previous
+  // camera effect also depended on cameraState, so setting it to "active"
+  // immediately scheduled another stop/start cycle forever.
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (cameraState === 'active') {
-      timer = setTimeout(() => {
-        stopScanning();
-        setTimeout(startScanning, 200);
-      }, 0);
-    }
-    return () => clearTimeout(timer);
-  }, [selectedDeviceId, cameraState, startScanning, stopScanning]);
+    if (!selectedDeviceId || disabled) return;
+    const timer = window.setTimeout(() => {
+      stopScanning();
+      void startScanningRef.current();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [disabled, selectedDeviceId, stopScanning]);
 
   return (
     <div className="scanner-viewport" aria-label="Barcode scanner camera">

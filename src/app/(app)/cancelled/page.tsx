@@ -2,7 +2,7 @@
 // src/app/(app)/cancelled/page.tsx
 // Cancelled Orders — Orders flagged as cancelled by Amazon SP-API sync
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useRealtimeOrders } from '@/lib/hooks/useRealtimeOrders';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -13,6 +13,7 @@ import { AlertOctagon, RefreshCw } from 'lucide-react';
 export default function CancelledPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const refreshTimerRef = useRef<number | null>(null);
 
   const fetchCancelled = useCallback(async () => {
     setLoading(true);
@@ -38,8 +39,20 @@ export default function CancelledPage() {
     return () => clearTimeout(timer);
   }, [fetchCancelled]);
 
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) return;
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void fetchCancelled();
+    }, 250);
+  }, [fetchCancelled]);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
+  }, []);
+
   useRealtimeOrders({
-    onOrderUpdate: useCallback(() => fetchCancelled(), [fetchCancelled]),
+    onOrderUpdate: scheduleRefresh,
   });
 
   return (

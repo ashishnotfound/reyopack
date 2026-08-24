@@ -3,10 +3,10 @@
 // Warehouse Locations Management — View and Create Bins/Shelves
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { WarehouseLocation } from '@/types/database.types';
 import { MapPin, Plus, RefreshCw } from 'lucide-react';
+import { notifyError, notifySuccess } from '@/lib/ui/notifications';
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<WarehouseLocation[]>([]);
@@ -58,14 +58,14 @@ export default function LocationsPage() {
 
       if (error) throw error;
 
-      toast.success('✓ Location created successfully');
+      notifySuccess('Location created');
       setCode('');
       setZone('');
       setDescription('');
       setShowAddModal(false);
       fetchLocations();
     } catch (err) {
-      toast.error(`Error adding location: ${(err as Error).message}`);
+      notifyError(`Could not add location: ${(err as Error).message}`);
     } finally {
       setSubmitting(false);
     }

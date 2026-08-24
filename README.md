@@ -48,6 +48,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
 # Server/Edge Function secrets; keep out of browser bundles.
 SUPABASE_SERVICE_ROLE_KEY=
+ADMIN_BOOTSTRAP_TOKEN=
 AMAZON_CLIENT_ID=
 AMAZON_CLIENT_SECRET=
 AMAZON_SP_API_REFRESH_TOKEN=
@@ -70,13 +71,12 @@ supabase db push
 
 Or apply the files in `supabase/migrations/` with the Supabase SQL editor. Do not use the legacy `REYO_PACK_SUPABASE_AIO.sql` as a production substitute for versioned migrations.
 
-After the first user signs up, promote an administrator from a controlled SQL session:
+After the first user signs up, create the first administrator through the protected setup flow:
 
-```sql
-update public.profiles
-set role = 'ADMIN', is_active = true
-where id = '<authenticated-user-uuid>';
-```
+1. Set a strong, temporary `ADMIN_BOOTSTRAP_TOKEN` in the server/Vercel environment.
+2. Sign in with the owner account and open `/bootstrap-admin`.
+3. Enter the token. The server checks that no administrator exists, promotes the signed-in account in a locked database transaction, and records an audit event.
+4. Remove or rotate the bootstrap token after setup. Subsequent attempts are rejected once any administrator exists.
 
 New signups are always created as `PACKER`; signup metadata cannot self-promote a user.
 

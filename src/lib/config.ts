@@ -11,6 +11,7 @@ export function isAmazonConfigured(): boolean {
     process.env.AMAZON_CLIENT_ID &&
       process.env.AMAZON_CLIENT_SECRET &&
       process.env.AMAZON_SP_API_REFRESH_TOKEN &&
+      process.env.AMAZON_SELLER_ID &&
       process.env.AMAZON_MARKETPLACE_ID,
   );
 }

@@ -3,10 +3,10 @@
 // SKU Catalog Management — View, Add, and Edit Amazon SKUs and Barcode Mappings
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Sku, BarcodeMapping } from '@/types/database.types';
 import { Tag, Plus, RefreshCw } from 'lucide-react';
+import { notifyError, notifySuccess } from '@/lib/ui/notifications';
 
 type SkuWithBarcodes = Sku & {
   barcode_mappings?: BarcodeMapping[];
@@ -84,10 +84,10 @@ export default function SkusPage() {
           is_primary: true,
         });
 
-        if (bcError) toast.error(`SKU created, but barcode failed: ${bcError.message}`);
+        if (bcError) notifyError(`SKU created, but barcode failed: ${bcError.message}`);
       }
 
-      toast.success('✓ SKU created successfully');
+      notifySuccess('SKU created');
       setAmazonSku('');
       setAsin('');
       setTitle('');
@@ -95,7 +95,7 @@ export default function SkusPage() {
       setShowAddModal(false);
       fetchSkus();
     } catch (err) {
-      toast.error(`Error adding SKU: ${(err as Error).message}`);
+      notifyError(`Could not add SKU: ${(err as Error).message}`);
     } finally {
       setSubmitting(false);
     }

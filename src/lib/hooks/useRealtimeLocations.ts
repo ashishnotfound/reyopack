@@ -2,8 +2,9 @@
 // src/lib/hooks/useRealtimeLocations.ts
 // Subscribes to Supabase Realtime for SKU location mapping changes
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { isSupabaseConfigured } from '@/lib/config';
 import type { SkuLocationMapping } from '@/types/database.types';
 
 interface UseRealtimeLocationsOptions {
@@ -15,21 +16,15 @@ export function useRealtimeLocations({
   onLocationUpdate,
   onLocationInsert,
 }: UseRealtimeLocationsOptions) {
-  const handleUpdate = useCallback(
-    (payload: { new: SkuLocationMapping }) => {
-      onLocationUpdate?.(payload.new);
-    },
-    [onLocationUpdate]
-  );
-
-  const handleInsert = useCallback(
-    (payload: { new: SkuLocationMapping }) => {
-      onLocationInsert?.(payload.new);
-    },
-    [onLocationInsert]
-  );
+  const handlersRef = useRef({ onLocationUpdate, onLocationInsert });
 
   useEffect(() => {
+    handlersRef.current = { onLocationUpdate, onLocationInsert };
+  }, [onLocationUpdate, onLocationInsert]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
     const supabase = getSupabaseClient();
 
     const channel = supabase
@@ -37,17 +32,17 @@ export function useRealtimeLocations({
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'sku_location_mappings' },
-        (payload) => handleUpdate(payload as unknown as { new: SkuLocationMapping })
+        (payload) => handlersRef.current.onLocationUpdate?.((payload as unknown as { new: SkuLocationMapping }).new)
       )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'sku_location_mappings' },
-        (payload) => handleInsert(payload as unknown as { new: SkuLocationMapping })
+        (payload) => handlersRef.current.onLocationInsert?.((payload as unknown as { new: SkuLocationMapping }).new)
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
-  }, [handleUpdate, handleInsert]);
+  }, []);
 }

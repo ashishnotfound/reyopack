@@ -358,6 +358,10 @@ export type Database = {
         };
         Returns: { success: boolean; sku_id: string; location_id: string; old_location_id: string };
       };
+      bootstrap_first_admin: {
+        Args: { p_user_id: string };
+        Returns: { success: boolean; code: string; message: string };
+      };
     };
     Enums: {
       user_role: UserRole;

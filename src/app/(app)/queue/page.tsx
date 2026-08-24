@@ -2,7 +2,7 @@
 // src/app/(app)/queue/page.tsx
 // Packing Queue — Orders waiting to be packed
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useRealtimeOrders } from '@/lib/hooks/useRealtimeOrders';
@@ -14,6 +14,7 @@ import { RefreshCw, ArrowRight, Package } from 'lucide-react';
 export default function QueuePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const refreshTimerRef = useRef<number | null>(null);
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -39,11 +40,23 @@ export default function QueuePage() {
     return () => clearTimeout(timer);
   }, [fetchQueue]);
 
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) return;
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void fetchQueue();
+    }, 250);
+  }, [fetchQueue]);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
+  }, []);
+
   // Realtime updates
   useRealtimeOrders({
-    onOrderUpdate: useCallback(() => fetchQueue(), [fetchQueue]),
-    onOrderInsert: useCallback(() => fetchQueue(), [fetchQueue]),
-    onPackingEvent: useCallback(() => fetchQueue(), [fetchQueue]),
+    onOrderUpdate: scheduleRefresh,
+    onOrderInsert: scheduleRefresh,
+    onPackingEvent: scheduleRefresh,
   });
 
   return (

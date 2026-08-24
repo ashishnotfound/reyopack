@@ -5,9 +5,10 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { SyncPanel } from '@/components/admin/SyncPanel';
+import { SetupChecklist } from '@/components/admin/SetupChecklist';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { SyncRun } from '@/types/database.types';
-import { Shield, Tag, MapPin, Users, KeyRound } from 'lucide-react';
+import { Shield, Tag, MapPin, Users, KeyRound, History, PackageSearch, Archive, Ban, Settings2, ClipboardList } from 'lucide-react';
 
 export default function AdminPage() {
   const [lastSyncRun, setLastSyncRun] = useState<SyncRun | null>(null);
@@ -77,6 +78,8 @@ export default function AdminPage() {
         </p>
       </div>
 
+      <SetupChecklist />
+
       {/* Overview Stats */}
       <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
         <div className="card card--elevated flex-1 p-4" style={{ minWidth: 140 }}>
@@ -106,18 +109,19 @@ export default function AdminPage() {
       <SyncPanel initialSyncRun={lastSyncRun} lastSyncAt={lastSyncAt} />
 
       {/* Quick Nav Cards */}
-      <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
-        <Link href="/admin/settings" className="card flex-1 p-4 hover-card card--info" style={{ minWidth: 200 }}>
-          <div className="row">
-            <KeyRound size={20} color="var(--color-primary)" />
-            <div>
-          <div className="font-bold text-base">SP-API Connection</div>
+      <div className="admin-link-grid">
+        <Link href="/admin/amazon" className="card p-4 hover-card card--info">
+          <div className="row"><KeyRound size={20} color="var(--color-primary)" /><div>
+              <div className="font-bold text-base">Amazon</div>
               <div className="text-xs text-muted">Marketplace and sync settings; secrets stay in Supabase</div>
-            </div>
-          </div>
+            </div></div>
         </Link>
 
-        <Link href="/admin/skus" className="card flex-1 p-4 hover-card" style={{ minWidth: 200 }}>
+        <Link href="/queue" className="card p-4 hover-card"><div className="row"><PackageSearch size={20} color="var(--color-primary)" /><div><div className="font-bold text-base">Orders</div><div className="text-xs text-muted">Current packing queue</div></div></div></Link>
+        <Link href="/history" className="card p-4 hover-card"><div className="row"><History size={20} color="var(--color-primary)" /><div><div className="font-bold text-base">Packing History</div><div className="text-xs text-muted">Permanent packing events</div></div></div></Link>
+        <Link href="/admin/sessions" className="card p-4 hover-card"><div className="row"><ClipboardList size={20} color="var(--color-primary)" /><div><div className="font-bold text-base">Sessions</div><div className="text-xs text-muted">Operator session history</div></div></div></Link>
+
+        <Link href="/admin/skus" className="card p-4 hover-card">
           <div className="row">
             <Tag size={20} color="var(--color-primary)" />
             <div>
@@ -127,7 +131,7 @@ export default function AdminPage() {
           </div>
         </Link>
 
-        <Link href="/admin/locations" className="card flex-1 p-4 hover-card" style={{ minWidth: 200 }}>
+        <Link href="/admin/locations" className="card p-4 hover-card">
           <div className="row">
             <MapPin size={20} color="var(--color-info)" />
             <div>
@@ -137,7 +141,9 @@ export default function AdminPage() {
           </div>
         </Link>
 
-        <Link href="/admin/users" className="card flex-1 p-4 hover-card" style={{ minWidth: 200 }}>
+        <Link href="/putaway" className="card p-4 hover-card"><div className="row"><Archive size={20} color="var(--color-info)" /><div><div className="font-bold text-base">Putaway</div><div className="text-xs text-muted">SKU location operations</div></div></div></Link>
+        <Link href="/cancelled" className="card p-4 hover-card"><div className="row"><Ban size={20} color="var(--color-error)" /><div><div className="font-bold text-base">Cancelled</div><div className="text-xs text-muted">Orders blocked from packing</div></div></div></Link>
+        <Link href="/admin/users" className="card p-4 hover-card">
           <div className="row">
             <Users size={20} color="var(--color-pending)" />
             <div>
@@ -146,6 +152,8 @@ export default function AdminPage() {
             </div>
           </div>
         </Link>
+        <Link href="/admin/audit" className="card p-4 hover-card"><div className="row"><ClipboardList size={20} color="var(--color-pending)" /><div><div className="font-bold text-base">Audit Log</div><div className="text-xs text-muted">Administrative activity</div></div></div></Link>
+        <Link href="/admin/settings" className="card p-4 hover-card"><div className="row"><Settings2 size={20} color="var(--color-primary)" /><div><div className="font-bold text-base">Settings</div><div className="text-xs text-muted">Operational preferences</div></div></div></Link>
       </div>
     </div>
   );

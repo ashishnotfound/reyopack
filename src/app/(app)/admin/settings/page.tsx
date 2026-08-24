@@ -4,9 +4,19 @@
 // Protected by RLS (Admin role only)
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 import { getSupabaseClient } from '@/lib/supabase/client';
-import { Lock, Save, RefreshCw, KeyRound } from 'lucide-react';
+import { Lock, Save, RefreshCw, KeyRound, CheckCircle2, CircleAlert, Volume2, Vibrate } from 'lucide-react';
+import { SyncPanel } from '@/components/admin/SyncPanel';
+import { notifyError, notifySuccess } from '@/lib/ui/notifications';
+import { getSoundEnabled, setSoundEnabled } from '@/lib/utils/sound';
+import { getVibrationEnabled, setVibrationEnabled } from '@/lib/utils/vibration';
+
+interface AmazonStatus {
+  configured: boolean;
+  fields: Record<string, boolean>;
+  marketplaceId: string;
+  region: string;
+}
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -16,6 +26,9 @@ export default function SettingsPage() {
   const [marketplaceId, setMarketplaceId] = useState('A21TJRUUN4KGV');
   const [region, setRegion] = useState('eu-west-1');
   const [lookbackHours, setLookbackHours] = useState('48');
+  const [amazonStatus, setAmazonStatus] = useState<AmazonStatus | null>(null);
+  const [soundEnabled, setSoundPreference] = useState(() => getSoundEnabled());
+  const [vibrationEnabled, setVibrationPreference] = useState(() => getVibrationEnabled());
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -37,12 +50,23 @@ export default function SettingsPage() {
     setLoading(false);
   }, []);
 
+  const fetchAmazonStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/amazon-status', { cache: 'no-store' });
+      if (response.ok) setAmazonStatus(await response.json() as AmazonStatus);
+      else setAmazonStatus({ configured: false, fields: {}, marketplaceId: 'A21TJRUUN4KGV', region: 'eu-west-1' });
+    } catch {
+      setAmazonStatus({ configured: false, fields: {}, marketplaceId: 'A21TJRUUN4KGV', region: 'eu-west-1' });
+    }
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchSettings();
+      fetchAmazonStatus();
     }, 0);
     return () => clearTimeout(timer);
-  }, [fetchSettings]);
+  }, [fetchAmazonStatus, fetchSettings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,10 +100,10 @@ export default function SettingsPage() {
         if (error) throw error;
       }
 
-      toast.success('✓ System settings updated successfully!');
-      fetchSettings();
+      notifySuccess('Operational settings saved');
+      void fetchSettings();
     } catch (err) {
-      toast.error(`Error saving settings: ${(err as Error).message}`);
+      notifyError(`Could not save settings: ${(err as Error).message}`);
     } finally {
       setSubmitting(false);
     }
@@ -90,10 +114,10 @@ export default function SettingsPage() {
       <div className="row row--between">
         <div>
           <h1 className="text-2xl font-extrabold row" style={{ gap: 8 }}>
-            <KeyRound size={24} color="var(--color-primary)" /> SP-API Credentials & Settings
+            <KeyRound size={24} color="var(--color-primary)" /> Amazon Connection
           </h1>
           <p className="text-sm text-secondary">
-              Configure non-sensitive Amazon marketplace and sync parameters
+              Understand connection health and configure non-sensitive marketplace settings
           </p>
         </div>
         <button className="btn btn--ghost btn--sm" onClick={fetchSettings} disabled={loading}>
@@ -107,14 +131,45 @@ export default function SettingsPage() {
           <div className="text-sm text-secondary">Loading system credentials…</div>
         </div>
       ) : (
+        <>
         <form onSubmit={handleSave} className="stack">
+          <div className={`card ${amazonStatus?.configured ? 'card--success' : 'card--warning'} stack stack--sm`} role="status">
+            <div className="row row--between">
+              <div className="row" style={{ gap: 8 }}>
+                {amazonStatus?.configured ? <CheckCircle2 size={20} color="var(--color-success)" /> : <CircleAlert size={20} color="var(--color-warning)" />}
+                <div className="font-bold text-base">AMAZON: {amazonStatus ? (amazonStatus.configured ? 'CONNECTED' : 'NOT CONFIGURED') : 'CHECKING…'}</div>
+              </div>
+              <div className="text-xs font-mono">{amazonStatus?.marketplaceId || 'Amazon.in'}</div>
+            </div>
+            <div className="text-xs text-muted">
+              {amazonStatus?.configured ? 'All required server-side connection values are present. Use SYNC NOW below to verify API health.' : 'Amazon is safe to configure, but the server-side secrets are not complete yet.'}
+            </div>
+            {amazonStatus && (
+              <div className="setup-checklist__grid">
+                {[
+                  ['LWA Client ID', amazonStatus.fields.clientId],
+                  ['LWA Client Secret', amazonStatus.fields.clientSecret],
+                  ['SP-API Refresh Token', amazonStatus.fields.refreshToken],
+                  ['Seller ID', amazonStatus.fields.sellerId],
+                  ['Marketplace ID', amazonStatus.fields.marketplaceId],
+                  ['Region', amazonStatus.fields.region],
+                ].map(([label, ready]) => (
+                  <div className="setup-checklist__row" key={String(label)}>
+                    <span className="text-xs">{label}</span>
+                    <span className={`text-xs ${ready ? 'text-success' : 'text-warning'}`}>{ready ? 'Configured ✓' : 'Missing'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Secure Credentials Notice */}
           <div className="card card--info p-4 stack stack--sm" role="region" aria-label="Security Architecture Notice">
             <div className="text-base font-bold row" style={{ gap: 8 }}>
               <Lock size={18} color="var(--color-primary)" /> Secure Edge Function Secrets Architecture
             </div>
             <p className="text-xs text-muted" style={{ lineHeight: 1.5 }}>
-              To protect your business from credential leaks, production Amazon SP-API secrets (Client Secret, Refresh Token, Seller ID) are configured securely in <strong>Supabase Edge Function Secrets</strong> and are never written to browser accessible database tables.
+              To protect your business from credential leaks, production Amazon SP-API secrets are configured in <strong>Supabase Edge Function Secrets</strong> or the server environment. Reyo Pack only reads presence flags here; it never displays or stores the values in browser-accessible database tables.
             </p>
             <div className="text-xs font-mono bg-tertiary p-3 border-radius-sm" style={{ border: '1px solid var(--border-subtle)' }}>
               Supabase Dashboard → Project Settings → Edge Functions → Secrets:<br />
@@ -192,7 +247,23 @@ export default function SettingsPage() {
             <Save size={20} />
             {submitting ? 'Saving Settings…' : 'SAVE OPERATIONAL SETTINGS'}
           </button>
+
+          <div className="card stack stack--sm">
+            <div className="text-base font-bold">Packing device preferences</div>
+            <p className="text-xs text-muted">Saved on this device only. These controls never affect server authorization or packing state.</p>
+            <label className="row row--between text-sm" htmlFor="setting-sound">
+              <span className="row"><Volume2 size={16} /> Sound feedback</span>
+              <input id="setting-sound" type="checkbox" checked={soundEnabled} onChange={(event) => { setSoundPreference(event.target.checked); setSoundEnabled(event.target.checked); }} />
+            </label>
+            <label className="row row--between text-sm" htmlFor="setting-vibration">
+              <span className="row"><Vibrate size={16} /> Vibration feedback</span>
+              <input id="setting-vibration" type="checkbox" checked={vibrationEnabled} onChange={(event) => { setVibrationPreference(event.target.checked); setVibrationEnabled(event.target.checked); }} />
+            </label>
+            <div className="text-xs text-muted">Scanner automatically pauses after a decode and returns to READY TO SCAN after PACKED.</div>
+          </div>
         </form>
+        <SyncPanel />
+        </>
       )}
     </div>
   );

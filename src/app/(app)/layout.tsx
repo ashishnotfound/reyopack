@@ -5,8 +5,9 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { QrCode, ListCheck, History, Ban, Archive, Shield, LogOut } from 'lucide-react';
+import { QrCode, ListCheck, History, Archive, Shield, LogOut } from 'lucide-react';
 import { OfflineBanner } from '@/components/ui/OfflineBanner';
+import { ConnectionStatus } from '@/components/ui/ConnectionStatus';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types/database.types';
 
@@ -39,7 +40,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { href: '/scan', label: 'Pack', icon: QrCode },
     { href: '/queue', label: 'Queue', icon: ListCheck },
     { href: '/history', label: 'History', icon: History },
-    { href: '/cancelled', label: 'Cancelled', icon: Ban },
     { href: '/putaway', label: 'Putaway', icon: Archive },
   ];
 
@@ -57,6 +57,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="row" style={{ gap: 12 }}>
+          <ConnectionStatus />
+          {profile?.role === 'ADMIN' && (
+            <Link href="/admin" className="app-header__admin-link" aria-label="Open Admin">
+              <Shield size={15} /> <span>ADMIN</span>
+            </Link>
+          )}
           {profile && (
             <div className="text-right">
               <div className="text-xs font-semibold text-primary">

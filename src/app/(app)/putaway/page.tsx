@@ -3,7 +3,6 @@
 // PUTAWAY MODE — Scan SKU or product barcode → Assign to warehouse location
 
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 import { CameraScanner } from '@/components/scanner/CameraScanner';
 import { ManualEntry } from '@/components/scanner/ManualEntry';
 import { PutawayCard } from '@/components/putaway/PutawayCard';
@@ -12,6 +11,7 @@ import { useRealtimeLocations } from '@/lib/hooks/useRealtimeLocations';
 import type { Sku, WarehouseLocation, SkuLocationMapping } from '@/types/database.types';
 import { Archive, History, X } from 'lucide-react';
 import Link from 'next/link';
+import { notifyError } from '@/lib/ui/notifications';
 
 type SkuWithLocation = Sku & {
   location_mapping?: {
@@ -81,7 +81,6 @@ export default function PutawayPage() {
 
       if (mapping?.sku) {
         setScannedSku(mapping.sku);
-        toast.success(`Found SKU: ${mapping.sku.amazon_sku}`);
         setLoading(false);
         return;
       }
@@ -101,13 +100,12 @@ export default function PutawayPage() {
 
       if (directSku) {
         setScannedSku(directSku);
-        toast.success(`Found SKU: ${directSku.amazon_sku}`);
       } else {
-        toast.error(`No SKU or product found for barcode: ${barcode}`);
+        notifyError(`No SKU or product found for barcode: ${barcode}`);
         setScannerPaused(false);
       }
     } catch {
-      toast.error('Error looking up barcode');
+      notifyError('Could not look up that SKU or barcode.');
       setScannerPaused(false);
     } finally {
       setLoading(false);
@@ -123,9 +121,8 @@ export default function PutawayPage() {
     const result = await response.json().catch(() => ({ error: 'Location assignment returned an unreadable response.' }));
 
     if (!response.ok || result.success === false) {
-      toast.error(result.error || result.message || 'Failed to assign location.');
+      notifyError(result.error || result.message || 'Failed to assign location.');
     } else {
-      toast.success('✓ Location updated successfully!');
       // Update local state
       const newLoc = locations.find((l) => l.id === locationId);
       setScannedSku((prev) =>
@@ -162,7 +159,7 @@ export default function PutawayPage() {
         <>
           <CameraScanner
             onScan={handleScanBarcode}
-            onError={(err) => toast.error(err)}
+            onError={notifyError}
             disabled={scannerPaused || loading}
           />
 
