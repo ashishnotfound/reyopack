@@ -15,20 +15,68 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+    let active = true;
+
+    const redirectToLogin = () => {
+      const currentPath = `${window.location.pathname}${window.location.search}`;
+      router.replace(`/login?redirectTo=${encodeURIComponent(currentPath || '/scan')}`);
+    };
+
+    const loadSession = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (active) {
+          setProfile(null);
+          setIsAuthenticated(false);
+          setAuthReady(true);
+        }
+        redirectToLogin();
+        return;
+      }
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (active) {
         if (data) setProfile(data as Profile);
+        setIsAuthenticated(true);
+        setAuthReady(true);
+      }
+    };
+
+    void loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session || event === 'SIGNED_OUT') {
+        if (active) {
+          setProfile(null);
+          setIsAuthenticated(false);
+          setAuthReady(true);
+        }
+        redirectToLogin();
+      } else if (event === 'SIGNED_IN') {
+        void loadSession();
       }
     });
-  }, []);
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [router]);
 
   const handleLogout = async () => {
     const supabase = getSupabaseClient();
@@ -45,6 +93,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (profile?.role === 'ADMIN') {
     navItems.push({ href: '/admin', label: 'Admin', icon: Shield });
+  }
+
+  if (!authReady || !isAuthenticated) {
+    return (
+      <div className="app-loading" role="status" aria-live="polite">
+        Checking authentication…
+      </div>
+    );
   }
 
   return (
