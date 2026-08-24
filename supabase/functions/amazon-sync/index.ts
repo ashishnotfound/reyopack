@@ -438,9 +438,10 @@ async function syncOrderItems(
       updated_at: new Date().toISOString(),
     };
 
-    await db.from("order_items").upsert(itemData, {
+    const { error: itemError } = await db.from("order_items").upsert(itemData, {
       onConflict: "order_id,amazon_order_item_id",
     });
+    if (itemError) throw new Error(`Order item upsert failed: ${itemError.message}`);
 
     stats.items_synced++;
   }
