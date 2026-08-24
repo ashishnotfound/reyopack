@@ -16,6 +16,7 @@ import { X, ChevronRight, WifiOff, Volume2, VolumeX, AlertOctagon } from 'lucide
 import { getSoundEnabled, playErrorSound, playWarningSound, setSoundEnabled as setSoundPreference } from '@/lib/utils/sound';
 import { vibrateError, vibrateWarning } from '@/lib/utils/vibration';
 import { notifyError } from '@/lib/ui/notifications';
+import { normalizeAwb } from '@/lib/domain/awb';
 
 type ScanState = 'idle' | 'loading' | 'found' | 'not_found' | 'error';
 
@@ -105,31 +106,21 @@ export default function ScanPage() {
       setAutoAdvance(false);
 
       try {
-        const response = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ awb: normalizedAwb }),
-        });
-        const payload = await response.json() as AwbLookupResult & { error?: string };
+        const supabase = getSupabaseClient();
+        const rpc = supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+        const { data, error } = await rpc('lookup_order_by_awb', { p_awb: normalizeAwb(normalizedAwb) });
+        if (error) throw error;
+        const payload = { ...(data as AwbLookupResult), awb: normalizeAwb(normalizedAwb) } as AwbLookupResult & { error?: string };
 
-        if (!response.ok) {
-          setScanState('error');
-          setScanError(payload.error || 'Shipment lookup failed. Try again.');
-          playErrorSound();
-          vibrateError();
-          setScannerPaused(false);
-          return;
-        }
-
-        const result = payload as AwbLookupResult;
-
-        if (!result.found) {
+        if (!payload.found) {
           setScanState('not_found');
           setNotFoundAwb(normalizedAwb);
           playErrorSound();
           vibrateError();
           return;
         }
+
+        const result = payload as AwbLookupResult;
 
         if (result.status === 'CANCELLED') {
           playWarningSound();

@@ -5,6 +5,9 @@ import { CheckSquare, ExternalLink, Loader2, PackageCheck } from 'lucide-react';
 import { playErrorSound, playSuccessSound, playWarningSound } from '@/lib/utils/sound';
 import { vibrateError, vibrateSuccess, vibrateWarning } from '@/lib/utils/vibration';
 import type { AwbLookupResult, PackOrderResult } from '@/types/database.types';
+import { getSupabaseClient } from '@/lib/supabase/client';
+import { invokeSupabaseFunction } from '@/lib/supabase/edge';
+import { normalizeBarcode } from '@/lib/domain/awb';
 
 interface PackConfirmProps {
   order: AwbLookupResult;
@@ -41,19 +44,21 @@ export function PackConfirm({ order, sessionId, awbScanned, onActionComplete, on
 
     try {
       if (action === 'PACKED' && !idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
-      const response = await fetch('/api/packing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          amazon_order_id: order.amazon_order_id,
-          session_id: sessionId || null,
-          awb_scanned: awbScanned || null,
-          device_info: navigator.userAgent,
-          idempotency_key: action === 'PACKED' ? idempotencyKey.current : null,
-        }),
+      const supabase = getSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Authentication session expired.');
+      const rpc = supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+      const rpcName = action === 'PACKED' ? 'atomic_pack_order' : 'atomic_check_order';
+      const { data, error } = await rpc(rpcName, {
+        p_amazon_order_id: order.amazon_order_id,
+        p_packer_id: user.id,
+        p_session_id: sessionId || null,
+        p_awb_scanned: awbScanned ? normalizeBarcode(awbScanned) : null,
+        p_device_info: navigator.userAgent,
+        ...(action === 'PACKED' ? { p_idempotency_key: idempotencyKey.current } : {}),
       });
-      const result = await response.json() as PackOrderResult & { error?: string };
+      if (error) throw error;
+      const result = data as PackOrderResult & { error?: string };
 
       if (result.success) {
         playSuccessSound();
@@ -89,12 +94,10 @@ export function PackConfirm({ order, sessionId, awbScanned, onActionComplete, on
     if (!order.amazon_order_id || labelLoading) return;
     setLabelLoading(true);
     try {
-      const response = await fetch('/api/shipping-label', {
+      const { response, data } = await invokeSupabaseFunction<{ label_url?: string; error?: string }>('get-shipping-label', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amazon_order_id: order.amazon_order_id }),
+        body: { amazon_order_id: order.amazon_order_id },
       });
-      const data = await response.json() as { label_url?: string; error?: string };
       if (!response.ok) onError(data.error || 'Amazon shipping document is unavailable.');
       else if (data.label_url) {
         setLabelUrl(data.label_url);

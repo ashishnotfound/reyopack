@@ -113,15 +113,24 @@ export default function PutawayPage() {
   };
 
   const handleAssignLocation = async (skuId: string, locationId: string, quantity: number) => {
-    const response = await fetch('/api/putaway', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sku_id: skuId, location_id: locationId, quantity, notes: 'Assigned via Putaway Mode' }),
+    const supabase = getSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      notifyError('Authentication session expired.');
+      return;
+    }
+    const rpc = supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+    const { data, error } = await rpc('upsert_sku_location', {
+      p_sku_id: skuId,
+      p_location_id: locationId,
+      p_quantity: quantity,
+      p_put_by: user.id,
+      p_notes: 'Assigned via Putaway Mode',
     });
-    const result = await response.json().catch(() => ({ error: 'Location assignment returned an unreadable response.' }));
+    const result = (data || {}) as { success?: boolean; error?: string; message?: string };
 
-    if (!response.ok || result.success === false) {
-      notifyError(result.error || result.message || 'Failed to assign location.');
+    if (error || result.success === false) {
+      notifyError(error?.message || result.error || result.message || 'Failed to assign location.');
     } else {
       // Update local state
       const newLoc = locations.find((l) => l.id === locationId);

@@ -7,6 +7,7 @@ import { RefreshCw, CheckCircle, AlertTriangle, Clock, Server } from 'lucide-rea
 import { useRealtimeSyncRuns } from '@/lib/hooks/useRealtimeOrders';
 import { formatDateTime, formatDuration } from '@/lib/utils/formatters';
 import type { SyncRun } from '@/types/database.types';
+import { invokeSupabaseFunction } from '@/lib/supabase/edge';
 
 interface SyncPanelProps {
   initialSyncRun?: SyncRun | null;
@@ -22,9 +23,8 @@ export function SyncPanel({ initialSyncRun, lastSyncAt }: SyncPanelProps) {
   const [amazonConfigured, setAmazonConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch('/api/health')
-      .then((response) => response.json())
-      .then((data: { configured?: { amazon?: boolean } }) => setAmazonConfigured(Boolean(data.configured?.amazon)))
+    invokeSupabaseFunction<{ configured?: boolean }>('amazon-status', { method: 'GET' })
+      .then(({ response, data }) => setAmazonConfigured(response.ok && Boolean(data.configured)))
       .catch(() => setAmazonConfigured(false));
   }, []);
 
@@ -48,15 +48,10 @@ export function SyncPanel({ initialSyncRun, lastSyncAt }: SyncPanelProps) {
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/admin/sync', {
+      const { response: res, data } = await invokeSupabaseFunction<{ error?: string }>('amazon-sync', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ lookback_hours: lookbackHours }),
+        body: { lookback_hours: lookbackHours },
       });
-
-      const data = await res.json();
       if (!res.ok) {
         setErrorMsg(data.error || 'Synchronization failed to trigger');
         setSyncing(false);

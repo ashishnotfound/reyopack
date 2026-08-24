@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  ...(process.env.REYO_NATIVE_BUILD === '1' ? { output: 'export' as const } : {}),
   // Allow mobile browser testing on local network IP and HTTPS tunnels in development
   allowedDevOrigins: [
     "192.168.1.2",

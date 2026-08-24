@@ -1,6 +1,6 @@
 -- REYO PACK — CONTROLLED FIRST ADMIN BOOTSTRAP
--- The application checks ADMIN_BOOTSTRAP_TOKEN before calling this function.
--- The advisory lock makes the "first admin only" rule safe under concurrency.
+-- The bootstrap-admin Edge Function authenticates the caller before invoking
+-- this function. The advisory lock makes the "first admin only" rule safe.
 
 CREATE OR REPLACE FUNCTION public.bootstrap_first_admin(p_user_id UUID)
 RETURNS JSONB

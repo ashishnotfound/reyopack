@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Reyo Pack</string>
+    <string name="title_activity_main">Reyo Pack</string>
+    <string name="package_name">com.reyostore.reyopack</string>
+    <string name="custom_url_scheme">com.reyostore.reyopack</string>
+</resources>

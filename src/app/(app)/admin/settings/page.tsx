@@ -10,6 +10,7 @@ import { SyncPanel } from '@/components/admin/SyncPanel';
 import { notifyError, notifySuccess } from '@/lib/ui/notifications';
 import { getSoundEnabled, setSoundEnabled } from '@/lib/utils/sound';
 import { getVibrationEnabled, setVibrationEnabled } from '@/lib/utils/vibration';
+import { invokeSupabaseFunction } from '@/lib/supabase/edge';
 
 interface AmazonStatus {
   configured: boolean;
@@ -52,8 +53,8 @@ export default function SettingsPage() {
 
   const fetchAmazonStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/admin/amazon-status', { cache: 'no-store' });
-      if (response.ok) setAmazonStatus(await response.json() as AmazonStatus);
+      const { response, data } = await invokeSupabaseFunction<AmazonStatus>('amazon-status', { method: 'GET' });
+      if (response.ok) setAmazonStatus(data);
       else setAmazonStatus({ configured: false, fields: {}, marketplaceId: 'A21TJRUUN4KGV', region: 'eu-west-1' });
     } catch {
       setAmazonStatus({ configured: false, fields: {}, marketplaceId: 'A21TJRUUN4KGV', region: 'eu-west-1' });

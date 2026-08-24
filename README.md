@@ -12,7 +12,7 @@ It owns its own Next.js application, Supabase schema, authentication, realtime s
 
 - Next.js 16 App Router, React 19, TypeScript, Tailwind-free operational CSS, and installable PWA metadata.
 - Browser camera scanning uses ZXing with Code 128, EAN/UPC, QR, Data Matrix, PDF417, and ITF support. Manual AWB entry remains available.
-- Server Route Handlers validate request bodies with Zod and enforce Supabase-authenticated roles before calling RPCs or Edge Functions.
+- The web deployment retains server Route Handlers for browser compatibility. The Android bundle bypasses them and calls Supabase Auth, RPCs, Realtime, and Edge Functions directly, so packing does not depend on Vercel runtime limits.
 - PostgreSQL is the source of truth. Migration `005_production_hardening.sql` adds server-side actor checks, row locking, persistent packing idempotency, immutable cancellation events, and security-definer search paths.
 - Supabase Realtime propagates order, event, shipment, location, session, and sync-run changes. API mutations never rely on browser-only state.
 - Amazon credentials are server-side Supabase secrets only. The sync function performs LWA refresh-token exchange, paginated Orders/Order Items reads, Easy Ship package reads where available, safe upserts, retries, and sync-run/error recording.
@@ -48,7 +48,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
 # Server/Edge Function secrets; keep out of browser bundles.
 SUPABASE_SERVICE_ROLE_KEY=
-ADMIN_BOOTSTRAP_TOKEN=
 AMAZON_CLIENT_ID=
 AMAZON_CLIENT_SECRET=
 AMAZON_SP_API_REFRESH_TOKEN=
@@ -71,12 +70,11 @@ supabase db push
 
 Or apply the files in `supabase/migrations/` with the Supabase SQL editor. Do not use the legacy `REYO_PACK_SUPABASE_AIO.sql` as a production substitute for versioned migrations.
 
-After the first user signs up, create the first administrator through the protected setup flow:
+After the first user signs up, create the first administrator through the one-time setup flow:
 
-1. Set a strong, temporary `ADMIN_BOOTSTRAP_TOKEN` in the server/Vercel environment.
-2. Sign in with the owner account and open `/bootstrap-admin`.
-3. Enter the token. The server checks that no administrator exists, promotes the signed-in account in a locked database transaction, and records an audit event.
-4. Remove or rotate the bootstrap token after setup. Subsequent attempts are rejected once any administrator exists.
+1. Sign in with the owner account and open `/bootstrap-admin`.
+2. Choose **Make me Admin**. The Supabase Edge Function authenticates the signed-in user and calls the locked database bootstrap function.
+3. Subsequent attempts are rejected once any administrator exists, and the action is recorded in the audit log.
 
 New signups are always created as `PACKER`; signup metadata cannot self-promote a user.
 
@@ -94,7 +92,7 @@ Enable Realtime for the tables listed in `002_rls.sql` if the project was create
 - safe order/item/shipment updates without trusting client input;
 - `sync_runs` and `sync_errors` records for operator-visible health.
 
-The admin panel calls `/api/admin/sync`. The scheduled route `/api/cron/sync` is protected by `CRON_SECRET`, and `vercel.json` schedules it hourly. If the Vercel plan does not permit the desired cadence, use a Supabase/Vercel-compatible scheduler to invoke the same protected route. Shipping documents are shown only when Amazon returns a real label/document reference; the app does not fabricate one.
+The admin panel calls the `amazon-sync` Edge Function directly in the Android bundle and through `/api/admin/sync` in the web deployment. The scheduled route `/api/cron/sync` is protected by `CRON_SECRET`, and `vercel.json` schedules it hourly. If the Vercel plan does not permit the desired cadence, use a Supabase-compatible scheduler to invoke `scheduled-sync`. Shipping documents are shown only when Amazon returns a real label/document reference; the app does not fabricate one.
 
 Deploy the Edge Functions and configure their secrets using the Supabase dashboard or CLI. Amazon API access is not testable until valid production credentials, seller authorization, and the correct marketplace permissions are supplied.
 
@@ -106,9 +104,9 @@ Deploy the Edge Functions and configure their secrets using the Supabase dashboa
 - **Putaway:** `/putaway` resolves SKU/barcode data and records SKU → location assignments through an authorized RPC plus append-only putaway history.
 - **Offline:** the PWA caches only a small shell. Operational reads and mutations are network-authoritative; no offline action is presented as server-confirmed.
 
-## Vercel deployment
+## Vercel deployment (optional web client)
 
-Import the `reyo-pack` GitHub repository as a Next.js project. Set the public Supabase variables in Preview/Production and configure `CRON_SECRET`. Configure the Supabase Edge Function secrets separately. Use the Vercel production URL for Android installation; the PWA avoids caching API responses so an operator cannot unknowingly run stale order state.
+Import the `reyo-pack` GitHub repository as a Next.js project for the optional browser/admin client. Set the public Supabase variables in Preview/Production and configure `CRON_SECRET`. Configure the Supabase Edge Function secrets separately. The Android APK does not load Vercel; it bundles the static client and talks directly to Supabase.
 
 Health check:
 
@@ -117,6 +115,20 @@ GET /api/health
 ```
 
 It returns configuration booleans only and never exposes secret values.
+
+## Android APK
+
+The APK is a Capacitor Android shell around a static export. It includes the scanner UI, client-side Supabase Auth, realtime subscriptions, transactional packing RPCs, putaway, history, and admin flows. It does not contain service-role keys, Amazon credentials, or any other privileged secret.
+
+Build locally when the Android SDK and Gradle network are available:
+
+```bash
+npm run native:sync
+cd android
+./gradlew assembleDebug
+```
+
+GitHub Actions also provides `Build Reyo Pack APK` through manual workflow dispatch or an `apk-*` tag. Add the two public Supabase build variables as repository Actions secrets before dispatching. The resulting `app-debug.apk` is uploaded as a workflow artifact. A release signing keystore should be kept in GitHub encrypted secrets for production distribution.
 
 ## Security notes
 

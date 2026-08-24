@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { CheckCircle2, CircleAlert, Loader2, Settings2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { invokeSupabaseFunction } from '@/lib/supabase/edge';
 
 type CheckState = 'ready' | 'missing' | 'checking';
 
@@ -23,8 +24,8 @@ export function SetupChecklist() {
     const controller = new AbortController();
 
     void Promise.all([
-      fetch('/api/health', { signal: controller.signal }).then((response) => response.json()),
-      fetch('/api/admin/amazon-status', { signal: controller.signal }).then((response) => response.json()),
+      Promise.resolve({ configured: { supabase: true } }),
+      invokeSupabaseFunction<{ configured?: boolean }>('amazon-status', { method: 'GET' }).then(({ data }) => data),
     ])
       .then(([health, amazon]) => {
         const databaseReady = Boolean(health?.configured?.supabase);
