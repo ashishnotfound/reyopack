@@ -4,12 +4,13 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { getSupabasePublicKey } from '@/lib/config';
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseAnonKey = getSupabasePublicKey();
 
   // Defensive check for Vercel deployment: if env vars are not set, allow request to render login
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -44,6 +45,11 @@ export async function proxy(request: NextRequest) {
       if (user) {
         return NextResponse.redirect(new URL('/scan', request.url));
       }
+      return supabaseResponse;
+    }
+
+    // API routes return JSON 401/403 responses from their handlers; never redirect them to HTML.
+    if (pathname.startsWith('/api/')) {
       return supabaseResponse;
     }
 

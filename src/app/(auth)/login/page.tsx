@@ -78,7 +78,6 @@ function LoginFormContent() {
           options: {
             data: {
               full_name: cleanFullName || cleanEmail.split('@')[0],
-              role: 'PACKER',
             },
           },
         });

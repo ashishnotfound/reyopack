@@ -172,7 +172,12 @@ export interface PackingSession {
   started_at: string;
   ended_at: string | null;
   orders_packed: number;
+  units_packed: number;
+  cancelled_count: number;
+  invalid_scans: number;
   notes: string | null;
+  event_type: 'SCANNED' | 'CHECKING' | 'SHIPPED_BY_MYSELF' | 'PACKED' | 'CANCELLED';
+  idempotency_key: string | null;
   // Joined
   packer?: Profile | null;
 }
@@ -181,7 +186,7 @@ export interface PackingEvent {
   id: string;
   order_id: string;
   session_id: string | null;
-  packed_by: string;
+  packed_by: string | null;
   awb_scanned: string | null;
   packed_at: string;
   device_info: string | null;
@@ -260,7 +265,7 @@ export interface SyncError {
 
 export interface PackOrderResult {
   success: boolean;
-  code: 'PACKED' | 'ORDER_NOT_FOUND' | 'ORDER_CANCELLED' | 'ALREADY_PACKED' | 'ALREADY_PROCESSED' | 'CHECKING_RECORDED' | 'SHIPPED_SUCCESSFULLY' | 'LOCK_CONFLICT';
+  code: 'PACKED' | 'ORDER_NOT_FOUND' | 'ORDER_CANCELLED' | 'ALREADY_PACKED' | 'ALREADY_PROCESSED' | 'CHECKING_RECORDED' | 'SHIPPED_SUCCESSFULLY' | 'LOCK_CONFLICT' | 'FORBIDDEN' | 'UNAUTHENTICATED' | 'REPLAYED';
   message: string;
   order_id?: string;
   amazon_order_id?: string;
@@ -335,6 +340,7 @@ export type Database = {
           p_session_id?: string;
           p_awb_scanned?: string;
           p_device_info?: string;
+          p_idempotency_key?: string;
         };
         Returns: PackOrderResult;
       };

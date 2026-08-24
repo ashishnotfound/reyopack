@@ -3,6 +3,11 @@
 // Uses Web Audio API — no external dependencies
 
 let audioContext: AudioContext | null = null;
+let soundEnabled = true;
+
+export function setSoundEnabled(enabled: boolean): void {
+  soundEnabled = enabled;
+}
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
@@ -17,6 +22,7 @@ function playTone(
   type: OscillatorType = 'sine',
   volume = 0.3
 ): void {
+  if (!soundEnabled) return;
   try {
     const ctx = getAudioContext();
     const oscillator = ctx.createOscillator();

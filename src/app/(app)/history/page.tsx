@@ -11,11 +11,16 @@ import { CheckCircle2, RefreshCw } from 'lucide-react';
 export default function HistoryPage() {
   const [events, setEvents] = useState<PackingEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     const supabase = getSupabaseClient();
-    const { data } = await supabase
+    const term = search.trim();
+    const matchedOrderIds = term
+      ? ((await supabase.from('orders').select('id').or(`amazon_order_id.ilike.%${term}%,buyer_name.ilike.%${term}%`).limit(100)).data as unknown as Array<{ id: string }> | null)?.map((row) => row.id) || []
+      : [];
+    let query = supabase
       .from('packing_events')
       .select(`
         *,
@@ -24,10 +29,15 @@ export default function HistoryPage() {
       `)
       .order('packed_at', { ascending: false })
       .limit(50);
+    if (term) {
+      if (matchedOrderIds.length > 0) query = query.in('order_id', matchedOrderIds);
+      else query = query.or(`awb_scanned.ilike.%${term}%,notes.ilike.%${term}%`);
+    }
+    const { data } = await query;
 
     setEvents((data as PackingEvent[]) || []);
     setLoading(false);
-  }, []);
+  }, [search]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -49,6 +59,8 @@ export default function HistoryPage() {
           <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
         </button>
       </div>
+
+      <input className="form-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search AWB, Amazon order ID, or operator…" aria-label="Search packing history" />
 
       {loading && events.length === 0 ? (
         <div className="card text-center p-4">

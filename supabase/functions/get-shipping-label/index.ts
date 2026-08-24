@@ -61,17 +61,24 @@ Deno.serve(async (req: Request) => {
   const { amazon_order_id } = body;
 
   try {
+    const { data: order } = await db
+      .from("orders")
+      .select("id")
+      .eq("amazon_order_id", amazon_order_id)
+      .maybeSingle();
+    if (!order) {
+      return new Response(JSON.stringify({ error: `Order not found: ${amazon_order_id}`, code: "ORDER_NOT_FOUND" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Check if we already have a stored label URL
     const { data: shipment } = await db
       .from("shipments")
       .select("label_url, awb_number, amazon_shipment_id")
-      .eq("order_id", (
-        await db.from("orders")
-          .select("id")
-          .eq("amazon_order_id", amazon_order_id)
-          .single()
-      ).data?.id)
-      .single();
+      .eq("order_id", order.id)
+      .maybeSingle();
 
     if (shipment?.label_url) {
       // Return existing signed URL (or extend if close to expiry)
@@ -162,12 +169,7 @@ Deno.serve(async (req: Request) => {
         label_url: storageKey,
         label_format: "PDF",
         updated_at: new Date().toISOString(),
-      }).eq("order_id", (
-        await db.from("orders")
-          .select("id")
-          .eq("amazon_order_id", amazon_order_id)
-          .single()
-      ).data?.id);
+      }).eq("order_id", order.id);
     }
 
     return new Response(

@@ -2,9 +2,8 @@
 // src/components/admin/SyncPanel.tsx
 // Sync control panel for manually triggering Amazon SP-API synchronization
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { RefreshCw, CheckCircle, AlertTriangle, Clock, Server } from 'lucide-react';
-import { getSupabaseClient } from '@/lib/supabase/client';
 import { useRealtimeSyncRuns } from '@/lib/hooks/useRealtimeOrders';
 import { formatDateTime, formatDuration } from '@/lib/utils/formatters';
 import type { SyncRun } from '@/types/database.types';
@@ -20,6 +19,14 @@ export function SyncPanel({ initialSyncRun, lastSyncAt }: SyncPanelProps) {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(lastSyncAt || null);
   const [lookbackHours, setLookbackHours] = useState(48);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [amazonConfigured, setAmazonConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/health')
+      .then((response) => response.json())
+      .then((data: { configured?: { amazon?: boolean } }) => setAmazonConfigured(Boolean(data.configured?.amazon)))
+      .catch(() => setAmazonConfigured(false));
+  }, []);
 
   // Subscribe to sync run status updates in realtime
   useRealtimeSyncRuns(
@@ -41,21 +48,10 @@ export function SyncPanel({ initialSyncRun, lastSyncAt }: SyncPanelProps) {
     setErrorMsg(null);
 
     try {
-      const supabase = getSupabaseClient();
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        setErrorMsg('Authentication session expired');
-        setSyncing(false);
-        return;
-      }
-
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const res = await fetch(`${supabaseUrl}/functions/v1/amazon-sync`, {
+      const res = await fetch('/api/admin/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ lookback_hours: lookbackHours }),
       });
@@ -91,6 +87,10 @@ export function SyncPanel({ initialSyncRun, lastSyncAt }: SyncPanelProps) {
             </div>
           </div>
         )}
+      </div>
+
+      <div className={`card ${amazonConfigured ? 'card--success' : 'card--error'} text-sm font-semibold`}>
+        AMAZON: {amazonConfigured === null ? 'CHECKING CONFIGURATION…' : amazonConfigured ? 'CONFIGURED — AWAITING SYNC HEALTH' : 'SERVER SECRETS REQUIRED'}
       </div>
 
       {errorMsg && (

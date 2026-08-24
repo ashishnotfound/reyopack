@@ -1,6 +1,7 @@
 // supabase/functions/_shared/amazon-auth.ts
 // Amazon LWA (Login with Amazon) token exchange
-// Fetches credentials from Deno.env secrets or system_settings database table
+// Fetches credentials from Supabase secrets. Marketplace and region may be
+// stored as non-sensitive operational settings; client secrets never are.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -13,8 +14,13 @@ interface LwaTokenResponse {
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
 async function getSetting(key: string, db?: ReturnType<typeof createClient>): Promise<string | null> {
-  const envVal = Deno.env.get(key);
+  const envKey = key === "AMAZON_REFRESH_TOKEN" ? "AMAZON_SP_API_REFRESH_TOKEN" : key;
+  const envVal = Deno.env.get(key) || Deno.env.get(envKey);
   if (envVal) return envVal;
+
+  if (['AMAZON_CLIENT_ID', 'AMAZON_CLIENT_SECRET', 'AMAZON_REFRESH_TOKEN', 'AMAZON_SP_API_REFRESH_TOKEN', 'AMAZON_SELLER_ID'].includes(key)) {
+    return null;
+  }
 
   if (!db) {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -43,7 +49,7 @@ export async function getAmazonAccessToken(db?: ReturnType<typeof createClient>)
 
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(
-      "Missing Amazon credentials. Set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET, AMAZON_REFRESH_TOKEN in Supabase Secrets or Admin Settings UI."
+      "Amazon SP-API is not configured. Set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET, AMAZON_SP_API_REFRESH_TOKEN, and AMAZON_SELLER_ID as server-side Supabase secrets."
     );
   }
 
@@ -76,7 +82,7 @@ export async function getAmazonAccessToken(db?: ReturnType<typeof createClient>)
 }
 
 export async function getSpApiBaseUrl(db?: ReturnType<typeof createClient>): Promise<string> {
-  const region = (await getSetting("AMAZON_REGION", db)) || "eu-west-1";
+  const region = Deno.env.get("AMAZON_SP_API_REGION") || (await getSetting("AMAZON_REGION", db)) || "eu-west-1";
   if (region.startsWith("eu") || region.startsWith("ap")) {
     return "https://sellingpartnerapi-eu.amazon.com";
   }
@@ -121,8 +127,8 @@ export async function spApiFetch(
       continue;
     }
 
-    if (res.status === 503) {
-      await sleep(2000 * (attempt + 1));
+    if ([500, 502, 503, 504].includes(res.status)) {
+      await sleep(Math.min(30_000, 1000 * (2 ** attempt)) + Math.floor(Math.random() * 250));
       continue;
     }
 

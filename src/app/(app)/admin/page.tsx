@@ -111,8 +111,8 @@ export default function AdminPage() {
           <div className="row">
             <KeyRound size={20} color="var(--color-primary)" />
             <div>
-              <div className="font-bold text-base">SP-API Credentials</div>
-              <div className="text-xs text-muted">Client ID, Secret, Refresh Token & Merchant ID</div>
+          <div className="font-bold text-base">SP-API Connection</div>
+              <div className="text-xs text-muted">Marketplace and sync settings; secrets stay in Supabase</div>
             </div>
           </div>
         </Link>

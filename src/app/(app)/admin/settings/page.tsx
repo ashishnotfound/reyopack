@@ -93,7 +93,7 @@ export default function SettingsPage() {
             <KeyRound size={24} color="var(--color-primary)" /> SP-API Credentials & Settings
           </h1>
           <p className="text-sm text-secondary">
-            Configure Amazon Selling Partner API client keys, refresh token, and sync parameters
+              Configure non-sensitive Amazon marketplace and sync parameters
           </p>
         </div>
         <button className="btn btn--ghost btn--sm" onClick={fetchSettings} disabled={loading}>
@@ -120,7 +120,7 @@ export default function SettingsPage() {
               Supabase Dashboard → Project Settings → Edge Functions → Secrets:<br />
               • AMAZON_CLIENT_ID<br />
               • AMAZON_CLIENT_SECRET<br />
-              • AMAZON_REFRESH_TOKEN<br />
+              • AMAZON_SP_API_REFRESH_TOKEN<br />
               • AMAZON_SELLER_ID
             </div>
           </div>
@@ -190,7 +190,7 @@ export default function SettingsPage() {
             id="btn-save-credentials"
           >
             <Save size={20} />
-            {submitting ? 'Saving Settings…' : 'SAVE SP-API CREDENTIALS'}
+            {submitting ? 'Saving Settings…' : 'SAVE OPERATIONAL SETTINGS'}
           </button>
         </form>
       )}

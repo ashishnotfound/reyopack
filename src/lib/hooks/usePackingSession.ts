@@ -10,7 +10,7 @@ export function usePackingSession(userId: string | null) {
   const [session, setSession] = useState<PackingSession | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Find or create session for today
+  // Find an active session. Creating one remains an explicit operator action.
   const startSession = useCallback(async (): Promise<PackingSession | null> => {
     if (!userId) return null;
     setLoading(true);
@@ -34,7 +34,7 @@ export function usePackingSession(userId: string | null) {
       return existing as PackingSession;
     }
 
-    // Create new session
+    // Start a new session only when the operator presses START PACKING.
     const { data: newSession, error } = await (
       supabase.from('packing_sessions') as unknown as {
         insert: (data: { packer_id: string }) => {
@@ -75,14 +75,21 @@ export function usePackingSession(userId: string | null) {
   }, [session]);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (userId) {
-      timer = setTimeout(() => {
-        startSession();
-      }, 0);
+    if (!userId) {
+      const resetTimer = setTimeout(() => setSession(null), 0);
+      return () => clearTimeout(resetTimer);
     }
-    return () => clearTimeout(timer);
-  }, [userId, startSession]);
+    const supabase = getSupabaseClient();
+    supabase
+      .from('packing_sessions')
+      .select('*')
+      .eq('packer_id', userId)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setSession((data as PackingSession | null) || null));
+  }, [userId]);
 
   return { session, loading, startSession, endSession };
 }

@@ -11,6 +11,7 @@ interface PackOrderRequest {
   session_id?: string;
   awb_scanned?: string;
   device_info?: string;
+  idempotency_key?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -85,6 +86,7 @@ Deno.serve(async (req: Request) => {
     p_session_id: body.session_id || null,
     p_awb_scanned: body.awb_scanned || null,
     p_device_info: body.device_info || null,
+    p_idempotency_key: body.idempotency_key || null,
   });
 
   if (fnError) {
@@ -113,6 +115,7 @@ Deno.serve(async (req: Request) => {
         httpStatus = 409;
         break;
       case "ALREADY_PACKED":
+      case "ALREADY_PROCESSED":
         httpStatus = 409;
         break;
       case "LOCK_CONFLICT":

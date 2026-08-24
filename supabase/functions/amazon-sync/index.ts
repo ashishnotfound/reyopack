@@ -86,9 +86,14 @@ Deno.serve(async (req: Request) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
-  // Verify caller is authenticated (admin role enforced by RLS)
+  const isScheduled = req.headers.get("x-scheduled-sync") === "true";
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  const scheduledAuthorized = isScheduled && Boolean(cronSecret) && req.headers.get("x-cron-secret") === cronSecret;
+
+  // Verify caller is authenticated for manual runs, or verify the dedicated
+  // cron secret for scheduled runs.
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
+  if (!authHeader && !scheduledAuthorized) {
     return new Response(
       JSON.stringify({ error: "Unauthorized" }),
       { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -100,24 +105,23 @@ Deno.serve(async (req: Request) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const db = createClient(supabaseUrl, serviceKey);
 
-  // Verify the calling user is admin (using their JWT)
-  const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-
-  const { data: { user }, error: authError } = await userClient.auth.getUser();
-  if (authError || !user) {
-    return new Response(
-      JSON.stringify({ error: "Invalid token" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+  let userId: string | null = null;
+  let profile: { role: string; is_active: boolean } | null = null;
+  if (!scheduledAuthorized) {
+    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader! } },
+    });
+    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Invalid token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    userId = user.id;
+    const { data } = await db.from("profiles").select("role, is_active").eq("id", user.id).single();
+    profile = data;
   }
-
-  const { data: profile } = await db
-    .from("profiles")
-    .select("role, is_active")
-    .eq("id", user.id)
-    .single();
 
   // Parse optional parameters from request body
   let body: { lookback_hours?: number; force?: boolean } = {};
@@ -127,10 +131,7 @@ Deno.serve(async (req: Request) => {
     // No body or not JSON — use defaults
   }
 
-  // Allow non-admin calls only for scheduled syncs (no auth header check in that path)
-  const isScheduled = req.headers.get("x-scheduled-sync") === "true";
-  
-  if (!isScheduled && (!profile || profile.role !== "ADMIN" || !profile.is_active)) {
+  if (!scheduledAuthorized && (!profile || profile.role !== "ADMIN" || !profile.is_active)) {
     return new Response(
       JSON.stringify({ error: "Forbidden: Admin role required" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -142,7 +143,7 @@ Deno.serve(async (req: Request) => {
     .from("sync_runs")
     .insert({
       status: "RUNNING",
-      triggered_by: isScheduled ? null : user.id,
+      triggered_by: scheduledAuthorized ? null : userId,
       started_at: new Date().toISOString(),
     })
     .select()
@@ -176,7 +177,7 @@ Deno.serve(async (req: Request) => {
       Date.now() - lookbackHours * 60 * 60 * 1000
     ).toISOString();
 
-    const marketplaceId = getMarketplaceId();
+    const marketplaceId = await getMarketplaceId(db);
 
     // Fetch all orders page by page
     let nextToken: string | undefined;
@@ -286,7 +287,7 @@ async function processOrder(
   db: ReturnType<typeof createClient>,
   spOrder: SpApiOrder,
   syncId: string,
-  stats: typeof Object
+  stats: Record<string, number>
 ): Promise<void> {
   const status = mapOrderStatus(spOrder.OrderStatus);
 
@@ -337,14 +338,20 @@ async function processOrder(
 
     if (error) throw new Error(`Insert order failed: ${error.message}`);
     orderId = newOrder!.id;
-    (stats as Record<string, number>).orders_created++;
+    stats.orders_created++;
   } else {
     orderId = existingOrder.id;
 
     // Don't overwrite packed status if already packed
-    const updateData = { ...orderData };
+    const updateData = { ...orderData } as Record<string, unknown>;
+    if (status === "CANCELLED") {
+      if (existingOrder.status === "CANCELLED") delete updateData.cancelled_at;
+      else updateData.cancelled_at = new Date().toISOString();
+    } else {
+      delete updateData.cancelled_at;
+    }
     if (existingOrder.status === "PACKED" && status !== "CANCELLED") {
-      delete (updateData as Record<string, unknown>).status;
+      delete updateData.status;
     }
 
     const { error } = await db
@@ -354,11 +361,18 @@ async function processOrder(
 
     if (error) throw new Error(`Update order failed: ${error.message}`);
 
-    if (status === "CANCELLED") {
-      (stats as Record<string, number>).orders_cancelled++;
-    } else {
-      (stats as Record<string, number>).orders_updated++;
-    }
+    if (status === "CANCELLED") stats.orders_cancelled++;
+    else stats.orders_updated++;
+  }
+
+  if (status === "CANCELLED" && (!existingOrder || existingOrder.status !== "CANCELLED")) {
+    await db.from("packing_events").insert({
+      order_id: orderId,
+      packed_by: null,
+      event_type: "CANCELLED",
+      notes: "Amazon cancellation observed during synchronization",
+      packed_at: new Date().toISOString(),
+    });
   }
 
   // Fetch and upsert order items
@@ -457,6 +471,7 @@ async function syncEasyShipData(
 
         const shipmentData = {
           order_id: orderId,
+          amazon_shipment_id: pkg.scheduledPackageId?.packageId || null,
           awb_number: trackingId || null,
           tracking_number: trackingId || null,
           carrier: "Amazon Easy Ship",
@@ -466,9 +481,17 @@ async function syncEasyShipData(
           updated_at: new Date().toISOString(),
         };
 
-        await db.from("shipments").upsert(shipmentData, {
-          onConflict: "order_id",
-        });
+        const shipmentId = shipmentData.amazon_shipment_id;
+        const existing = shipmentId
+          ? await db.from("shipments").select("id").eq("amazon_shipment_id", shipmentId).maybeSingle()
+          : await db.from("shipments").select("id").eq("order_id", orderId).eq("awb_number", trackingId || "").maybeSingle();
+        if (existing.data?.id) {
+          const { error } = await db.from("shipments").update(shipmentData).eq("id", existing.data.id);
+          if (error) throw new Error(`Shipment update failed: ${error.message}`);
+        } else {
+          const { error } = await db.from("shipments").insert(shipmentData);
+          if (error) throw new Error(`Shipment insert failed: ${error.message}`);
+        }
 
         stats.shipments_synced++;
       }

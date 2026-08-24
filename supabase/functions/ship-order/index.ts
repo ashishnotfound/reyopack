@@ -1,5 +1,5 @@
 // supabase/functions/ship-order/index.ts
-// Edge Function for "SHIPPED BY MYSELF" action — records fulfillment completion
+// Backwards-compatible Edge Function alias for the PACKED transaction.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
@@ -34,7 +34,7 @@ Deno.serve(async (req: Request) => {
 
   const db = createClient(supabaseUrl, serviceKey);
 
-  let body: { amazon_order_id: string; session_id?: string; awb_scanned?: string; device_info?: string };
+  let body: { amazon_order_id: string; session_id?: string; awb_scanned?: string; device_info?: string; idempotency_key?: string };
   try {
     body = await req.json();
   } catch {
@@ -51,12 +51,13 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  const { data: result, error: fnError } = await db.rpc("atomic_ship_order", {
+  const { data: result, error: fnError } = await db.rpc("atomic_pack_order", {
     p_amazon_order_id: body.amazon_order_id,
     p_packer_id: user.id,
     p_session_id: body.session_id || null,
     p_awb_scanned: body.awb_scanned || null,
     p_device_info: body.device_info || null,
+    p_idempotency_key: body.idempotency_key || null,
   });
 
   if (fnError) {

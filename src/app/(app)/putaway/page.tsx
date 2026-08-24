@@ -115,24 +115,15 @@ export default function PutawayPage() {
   };
 
   const handleAssignLocation = async (skuId: string, locationId: string, quantity: number) => {
-    const supabase = getSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    const { error } = await (
-      supabase.rpc as unknown as (
-        fn: string,
-        args: Record<string, unknown>
-      ) => Promise<{ error: { message: string } | null }>
-    )('upsert_sku_location', {
-      p_sku_id: skuId,
-      p_location_id: locationId,
-      p_quantity: quantity,
-      p_put_by: user?.id,
-      p_notes: 'Assigned via Putaway Mode',
+    const response = await fetch('/api/putaway', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sku_id: skuId, location_id: locationId, quantity, notes: 'Assigned via Putaway Mode' }),
     });
+    const result = await response.json().catch(() => ({ error: 'Location assignment returned an unreadable response.' }));
 
-    if (error) {
-      toast.error(`Failed to assign location: ${error.message}`);
+    if (!response.ok || result.success === false) {
+      toast.error(result.error || result.message || 'Failed to assign location.');
     } else {
       toast.success('✓ Location updated successfully!');
       // Update local state

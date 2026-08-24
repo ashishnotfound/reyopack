@@ -1,6 +1,6 @@
 'use client';
 // src/app/(app)/scan/page.tsx
-// PRIMARY PACKING PAGE — Scan AWB → Visual Verification → Action (CHECKING / SHIPPED BY MYSELF) → Record → Next
+// PRIMARY PACKING PAGE — Scan AWB → Visual Verification → PACKED → Record → Next
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
@@ -14,7 +14,7 @@ import { usePackingSession } from '@/lib/hooks/usePackingSession';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { AwbLookupResult, PackOrderResult, Order } from '@/types/database.types';
 import { X, ChevronRight, WifiOff, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
-import { playErrorSound, playWarningSound } from '@/lib/utils/sound';
+import { playErrorSound, playWarningSound, setSoundEnabled as setSoundPreference } from '@/lib/utils/sound';
 import { vibrateError, vibrateWarning } from '@/lib/utils/vibration';
 
 type ScanState = 'idle' | 'loading' | 'found' | 'not_found' | 'error';
@@ -34,7 +34,7 @@ export default function ScanPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const isOnline = useOnlineStatus();
-  const { session } = usePackingSession(userId);
+  const { session, startSession, endSession, loading: sessionLoading } = usePackingSession(userId);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -96,24 +96,21 @@ export default function ScanPage() {
       setNotFoundAwb(null);
 
       try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await (
-          supabase.rpc as unknown as (
-            fn: string,
-            args: { p_awb: string }
-          ) => Promise<{ data: AwbLookupResult; error: { message: string } | null }>
-        )('lookup_order_by_awb', {
-          p_awb: awb.trim(),
+        const response = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ awb }),
         });
+        const payload = await response.json() as AwbLookupResult & { error?: string };
 
-        if (error) {
+        if (!response.ok) {
           setScanState('error');
-          toast.error(`Lookup failed: ${error.message}`);
+          toast.error(payload.error || 'Lookup failed.');
           setScannerPaused(false);
           return;
         }
 
-        const result = data as AwbLookupResult;
+        const result = payload as AwbLookupResult;
 
         if (!result.found) {
           setScanState('not_found');
@@ -145,10 +142,10 @@ export default function ScanPage() {
   );
 
   const handleActionComplete = useCallback(
-    (action: 'CHECKING' | 'SHIPPED_BY_MYSELF', result: PackOrderResult) => {
-      if (action === 'SHIPPED_BY_MYSELF') {
+    (action: 'CHECKING' | 'PACKED', result: PackOrderResult) => {
+      if (action === 'PACKED') {
         setTodayCount((c) => c + 1);
-        toast.success('✓ Order Shipped & Event Recorded!', { duration: 2000 });
+        toast.success('✓ PACKED — permanent event recorded', { duration: 2000 });
         setScannedOrder((prev) =>
           prev
             ? {
@@ -201,13 +198,28 @@ export default function ScanPage() {
           )}
           <button
             className="btn btn--ghost btn--sm"
-            onClick={() => setSoundEnabled(!soundEnabled)}
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundPreference(next);
+              setSoundEnabled(next);
+            }}
             title="Toggle audio feedback"
           >
             {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
         </div>
       </div>
+
+      {session ? (
+        <div className="card card--elevated row row--between" style={{ gap: 12 }}>
+          <div className="text-sm"><strong>SESSION ACTIVE</strong><div className="text-xs text-muted">#{session.id.slice(0, 8)} · {session.orders_packed} packages · {session.units_packed || 0} units</div></div>
+          <button className="btn btn--ghost btn--sm" onClick={() => endSession()}>END SESSION</button>
+        </div>
+      ) : (
+        <button className="btn btn--primary btn--full btn--lg" onClick={() => startSession()} disabled={sessionLoading || !userId || !isOnline}>
+          {sessionLoading ? 'STARTING SESSION…' : 'START PACKING'}
+        </button>
+      )}
 
       {/* Offline Guard Banner */}
       {!isOnline && (
@@ -299,7 +311,7 @@ export default function ScanPage() {
             awbScanned={scannedOrder.awb}
             onActionComplete={handleActionComplete}
             onError={(msg) => toast.error(msg)}
-            disabled={!isOnline}
+            disabled={!isOnline || !session}
           />
 
           {/* Next Button after processing */}
